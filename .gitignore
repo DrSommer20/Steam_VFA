@@ -1,0 +1,8 @@
+.env
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/players.json
+__pycache__/
+*.pyc
+.venv/

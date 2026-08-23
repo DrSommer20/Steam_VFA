@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steam Group Hub</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🎮</text></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">🎮</span>
+    <div>
+      <h1>Steam Group Hub</h1>
+      <p class="sub" id="lastRun">lade …</p>
+    </div>
+  </div>
+  <label class="whoami">
+    Ich bin
+    <select id="whoami"><option value="">– niemand –</option></select>
+  </label>
+</header>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="dashboard" class="active">Übersicht</button>
+  <button data-tab="library">Bibliothek</button>
+  <button data-tab="ideas">Spielideen</button>
+  <button data-tab="achievements">Errungenschaften</button>
+  <button data-tab="ranks">Ranglisten</button>
+  <button data-tab="vote">Abstimmung</button>
+</nav>
+
+<main>
+  <!-- ------------------------------------------------------- Übersicht -->
+  <section id="dashboard" class="tab active">
+    <div class="stat-grid" id="stats"></div>
+
+    <div class="two-col">
+      <div class="card">
+        <h2>Spielzeit der letzten 30 Tage</h2>
+        <div id="timelineChart" class="chart"></div>
+        <div class="legend" id="timelineLegend"></div>
+      </div>
+      <div class="card">
+        <h2>Auszeichnungen</h2>
+        <div id="awards" class="awards"></div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <h2>Was zuletzt lief</h2>
+        <div id="activity" class="feed"></div>
+      </div>
+      <div class="card">
+        <h2>Die Runde</h2>
+        <div id="players" class="players"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------ Bibliothek -->
+  <section id="library" class="tab">
+    <div class="card">
+      <div class="filters">
+        <input type="search" id="libSearch" placeholder="Spiel suchen …">
+        <label><input type="checkbox" id="libMp" checked> nur Multiplayer</label>
+        <label>mind. Besitzer
+          <select id="libOwners"></select>
+        </label>
+        <label><input type="checkbox" id="libUnplayed"> nur ungespielt</label>
+        <label>sortieren
+          <select id="libSort">
+            <option value="owners">Besitzer</option>
+            <option value="playtime">Spielzeit</option>
+            <option value="recent">zuletzt gespielt</option>
+            <option value="name">Name</option>
+          </select>
+        </label>
+      </div>
+      <div id="libCount" class="hint"></div>
+      <div id="libTable"></div>
+    </div>
+  </section>
+
+  <!-- ----------------------------------------------------- Spielideen -->
+  <section id="ideas" class="tab">
+    <div class="card">
+      <h2>Sofort spielbar <span class="hint">– das besitzen alle</span></h2>
+      <div id="recReady" class="game-grid"></div>
+    </div>
+    <div class="card">
+      <h2>Fast komplett <span class="hint">– nur einer muss noch kaufen</span></h2>
+      <div id="recAlmost" class="game-grid"></div>
+    </div>
+    <div class="card">
+      <h2>Backlog-Perlen <span class="hint">– gekauft, nie gestartet</span></h2>
+      <div id="recGems" class="game-grid"></div>
+    </div>
+    <div class="card">
+      <h2>Gerade angesagt <span class="hint">– letzte 14 Tage</span></h2>
+      <div id="recTrending" class="game-grid"></div>
+    </div>
+    <div class="card">
+      <h2>Neu entdecken <span class="hint">– kennt ihr noch nicht, passt aber zum Geschmack</span></h2>
+      <div id="discover" class="game-grid"></div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ Errungenschaften -->
+  <section id="achievements" class="tab">
+    <div class="two-col">
+      <div class="card">
+        <h2>Seltene Errungenschaften</h2>
+        <p class="hint">Weltweit von unter 10 % der Spieler freigeschaltet.</p>
+        <div id="rareAch" class="ach-list"></div>
+      </div>
+      <div class="card">
+        <h2>Zuletzt freigeschaltet</h2>
+        <div id="recentAch" class="ach-list"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Fortschritt</h2>
+      <div id="completion"></div>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------------- Ranglisten -->
+  <section id="ranks" class="tab">
+    <div id="boards" class="board-grid"></div>
+    <div class="card">
+      <h2>Gemeinsame Spiele</h2>
+      <p class="hint">Wie viele Titel jedes Paar zusammen besitzt.</p>
+      <div id="matrix" class="matrix-wrap"></div>
+    </div>
+    <div class="card">
+      <h2>Wann wird gespielt?</h2>
+      <p class="hint">Uhrzeit der freigeschalteten Errungenschaften – der beste Proxy, den Steam hergibt.</p>
+      <div id="heatmap" class="matrix-wrap"></div>
+    </div>
+  </section>
+
+  <!-- -------------------------------------------------------- Abstimmung -->
+  <section id="vote" class="tab">
+    <div class="card">
+      <h2>Was zocken wir als Nächstes?</h2>
+      <p class="hint">Oben rechts auswählen, wer du bist – dann abstimmen. Vorschläge kommen aus der gemeinsamen Bibliothek.</p>
+      <div class="filters">
+        <input type="search" id="voteSearch" placeholder="Spiel zum Vorschlagen suchen …">
+      </div>
+      <div id="voteSuggest" class="vote-suggest"></div>
+      <div id="voteList" class="vote-list"></div>
+    </div>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box">
+    <button class="modal-close" id="modalClose">✕</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,54 @@
+# Zwei Container aus einem Image:
+#   steamhub          - der Webserver
+#   steamhub-collect  - der Sammler im Dauerlauf (ersetzt cron/systemd-Timer)
+# Beide teilen sich das Volume mit der SQLite-Datei.
+#
+#   cp .env.example .env     # STEAM_API_KEY eintragen
+#   docker compose up -d --build
+#   docker compose logs -f steamhub-collect
+
+x-common: &common
+  build: .
+  image: steamhub:latest
+  restart: unless-stopped
+  env_file: [.env]
+  # Diese vier gewinnen bewusst gegen die .env: im Container liegen die Daten
+  # im Volume unter /data, und der Server muss auf allen Interfaces lauschen.
+  environment:
+    DB_PATH: /data/steamhub.db
+    PLAYERS_FILE: /data/players.json
+    HOST: 0.0.0.0
+    PORT: "8077"
+  volumes:
+    - steamhub-data:/data
+
+services:
+  steamhub:
+    <<: *common
+    container_name: steamhub
+    ports:
+      # Nur auf localhost binden - nach aussen geht es ueber deinen nginx.
+      # Wenn nginx selbst ein Container ist: diese zwei Zeilen weglassen und
+      # stattdessen das gemeinsame Netzwerk unten aktivieren.
+      - "127.0.0.1:8077:8077"
+    # networks: [web]
+
+  steamhub-collect:
+    <<: *common
+    container_name: steamhub-collect
+    # alle 30 Minuten sammeln, erster Lauf sofort beim Start
+    command: ["python", "-m", "app.collect", "--interval", "1800"]
+    depends_on:
+      - steamhub
+
+volumes:
+  steamhub-data:
+
+# Falls dein nginx ebenfalls als Container laeuft: das vorhandene Netzwerk
+# hier eintragen, oben bei steamhub aktivieren und die ports-Zeile entfernen.
+# Der nginx spricht den Dienst dann unter http://steamhub:8077 an.
+#
+# networks:
+#   web:
+#     external: true
+#     name: <name-deines-nginx-netzwerks>

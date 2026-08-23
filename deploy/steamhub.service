@@ -1,0 +1,24 @@
+[Unit]
+Description=Steam Group Hub (Webserver)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=steamhub
+Group=steamhub
+WorkingDirectory=/opt/steamhub
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/steamhub/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8077 --workers 1
+Restart=on-failure
+RestartSec=5
+
+# etwas Absicherung - der Dienst braucht nur sein eigenes Verzeichnis
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/steamhub/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Steam-Daten regelmaessig einsammeln
+
+[Timer]
+# alle 30 Minuten, mit etwas Streuung, damit nicht alle gleichzeitig bei Steam anklopfen
+OnBootSec=3min
+OnUnitActiveSec=30min
+RandomizedDelaySec=180
+Persistent=true
+
+[Install]
+WantedBy=timers.target

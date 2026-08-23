@@ -1,0 +1,19 @@
+[Unit]
+Description=Steam Group Hub - Daten einsammeln
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=steamhub
+Group=steamhub
+WorkingDirectory=/opt/steamhub
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/steamhub/.venv/bin/python -m app.collect
+TimeoutStartSec=1800
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/steamhub/data

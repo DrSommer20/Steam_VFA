@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/players.json
+.git/
+.gitignore
+.claude/
+deploy/
+README.md
+*.md
