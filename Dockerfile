@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
-# Ein Image, zwei Rollen: Webserver und Sammler starten daraus mit
-# unterschiedlichem Command (siehe docker-compose.yml).
+# Ein Image, drei Rollen: Webserver, Sammler und Discord-Bot starten daraus
+# mit unterschiedlichem Command (siehe docker-compose.yml).
 
 # ---------------------------------------------------------------- build-stage
 FROM python:3.12-slim AS build
@@ -31,6 +31,7 @@ COPY --from=build /opt/venv /opt/venv
 
 WORKDIR /app
 COPY app/ ./app/
+COPY bot/ ./bot/
 COPY frontend/ ./frontend/
 COPY data/coop_seed.json ./data/coop_seed.json
 

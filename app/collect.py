@@ -14,7 +14,7 @@ import logging
 import random
 import time
 
-from . import db
+from . import db, notify
 from .config import load_players, settings
 from .steam import SteamClient, classify_categories
 
@@ -320,6 +320,15 @@ async def run(full: bool = False, skip_achievements: bool = False) -> dict:
                 note or "store={} ach={}".format(stats["store"], stats["ach"]),
             ),
         )
+    # Discord kommt zum Schluss und darf den Lauf nicht kippen: die Daten sind
+    # zu dem Zeitpunkt schon geschrieben, eine kaputte Webhook-URL ist kein Grund,
+    # den naechsten Lauf zu gefaehrden.
+    try:
+        stats["discord"] = await notify.after_collect()
+    except Exception:  # noqa: BLE001
+        log.exception("Discord-Benachrichtigung fehlgeschlagen")
+        stats["discord"] = 0
+
     stats["ok"] = ok
     stats["note"] = note
     return stats

@@ -38,6 +38,14 @@ braucht keine Datenbank außer SQLite und keinen Build-Schritt fürs Frontend.
 **Abstimmung**
 - „Was zocken wir Freitag?" – Daumen hoch/runter pro Spiel, ohne Login, auf Vertrauensbasis
 
+**Discord**
+- Meldungen im Channel: seltene Errungenschaften, 100-%-Spiele, Neuzugänge, die die Runde
+  komplettieren, sonntags ein Rückblick
+- Slash-Befehle: `/zocken` postet Vorschläge **mit Abstimmungs-Buttons**, dazu `/abstimmung`,
+  `/spiel`, `/rangliste`, `/selten`, `/wasgeht`
+- Sitzen genug Leute im Sprachkanal, schlägt der Bot von selbst vor, was **genau diese**
+  Leute alle besitzen und ewig nicht gestartet haben
+
 ---
 
 ## Schnellstart (lokal ausprobieren)
@@ -86,6 +94,7 @@ Das startet zwei Container aus **einem** Image:
 |---|---|
 | `steamhub` | uvicorn, gebunden auf `127.0.0.1:8077` |
 | `steamhub-collect` | Sammler im Dauerlauf, alle 30 Min (`--interval 1800`) – ersetzt cron/systemd |
+| `steamhub-bot` | Discord-Bot, **nur mit** `--profile bot` (siehe unten) |
 
 Die SQLite-Datei und `players.json` liegen im Named Volume `steamhub-data` unter `/data`,
 beide Container teilen es sich (SQLite läuft im WAL-Modus, parallele Zugriffe sind
@@ -146,6 +155,87 @@ sudo -u steamhub /opt/steamhub/.venv/bin/python -m app.cli list
 
 ---
 
+## Discord anbinden
+
+Zwei Stufen, unabhängig voneinander. Stufe 1 kostet fünf Minuten und braucht keinen Bot.
+
+### Stufe 1: Meldungen per Webhook
+
+In Discord: **Kanal → Bearbeiten → Integrationen → Webhooks → Neuer Webhook**, URL kopieren
+und in die `.env`:
+
+```bash
+DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/…
+PUBLIC_URL=https://steam.example.de     # optional, erscheint als Fußzeile
+```
+
+Der Sammler postet danach am Ende jedes Laufs, was neu ist:
+
+| Meldung | Wann |
+|---|---|
+| 💎 Seltene Errungenschaft | weltweit unter `NOTIFY_RARE_PCT` % (Standard 5) |
+| 🏆 Spiel auf 100 % | alle Errungenschaften eines Titels freigeschaltet |
+| 🆕 Neuzugang im Regal | Multiplayer-Titel, den mindestens einer aus der Runde schon hat – inklusive „nur **Timmi** fehlt noch (9,99 €)" |
+| 📊 Wochenrückblick | sonntags ab 18 Uhr: Spielzeit-Podium, meistgespielt, Staubfänger der Woche |
+
+**Beim ersten Mal wird nichts nachgeholt.** Der aktuelle Bestand gilt als Ausgangslage und
+landet stumm in der Tabelle `discord_sent` – sonst prasseln beim Einschalten Hunderte alter
+Errungenschaften in den Channel. Danach ist jedes Ereignis über seinen Schlüssel gemerkt,
+Doppelmeldungen kann es auch nach einem Neustart nicht geben. Pro Lauf gehen höchstens
+20 Meldungen raus, der Rest folgt beim nächsten.
+
+Eine kaputte Webhook-URL bricht den Sammellauf nicht ab – die Daten sind zu dem Zeitpunkt
+längst geschrieben.
+
+### Stufe 2: der Bot
+
+1. <https://discord.com/developers/applications> → **New Application** → links **Bot**
+   → *Reset Token* → Token in die `.env` unter `DISCORD_TOKEN`
+2. Beim Bot **Server Members Intent** einschalten (sonst sieht er nicht, wer im Sprachkanal sitzt)
+3. Unter **OAuth2 → URL Generator**: Scopes `bot` + `applications.commands`,
+   Rechte *Send Messages*, *Embed Links*, *Read Message History*. Mit der erzeugten URL
+   den Bot auf euren Server einladen.
+4. `.env` vervollständigen und starten:
+
+```bash
+ADMIN_TOKEN=…            # Pflicht: damit schreibt der Bot in den Hub
+DISCORD_TOKEN=…
+DISCORD_GUILD_ID=…       # Server-ID: Befehle sind sofort da statt nach einer Stunde
+DISCORD_CHANNEL_ID=…     # optional, Kanal für die Voice-Vorschläge
+```
+
+```bash
+docker compose --profile bot up -d --build
+docker compose logs -f steamhub-bot
+```
+
+| Befehl | Was er tut |
+|---|---|
+| `/zocken` | Vorschläge mit 👍/👎-Buttons – eine Reihe pro Spiel |
+| `/abstimmung` | aktueller Stand, wer wofür gestimmt hat |
+| `/wasgeht` | was die Leute in *deinem* Sprachkanal gerade zusammen spielen könnten |
+| `/spiel <name>` | wer hat's, wer spielt's, wie weit sind die Achievements |
+| `/rangliste` | die Leaderboards aus dem Web, als Embed |
+| `/selten` | die seltensten Errungenschaften der Runde |
+| `/verbinden` | Discord-Konto mit dem eigenen Spieler verknüpfen |
+
+**Warum `/verbinden`?** Die Abstimmung im Web läuft auf Vertrauensbasis. In Discord weiß der
+Bot dagegen, wer klickt – er löst die Discord-ID über `discord_links` zu einer SteamID auf
+und schreibt die Stimme über `POST /api/discord/vote` in dieselbe Tabelle wie das Web.
+Beide Seiten zeigen also immer denselben Stand. Ohne Verknüpfung ist ein Klick wirkungslos
+und der Bot sagt das (nur dem Klickenden).
+
+Der Bot hat **keinen** eigenen Datenbankzugriff, er spricht ausschließlich HTTP mit
+`steamhub`. Im Compose-Netz erreicht er ihn als `http://steamhub:8077`; läuft er woanders,
+setzt `HUB_URL` die Adresse. Die schreibenden Routen (`/api/discord/*`) verlangen den
+`ADMIN_TOKEN` als `?token=`.
+
+Die Buttons überleben einen Neustart des Bots: welches Spiel und welche Richtung gemeint
+ist, steckt vollständig in der `custom_id` der Schaltfläche, nicht in einem Objekt im
+Speicher.
+
+---
+
 ## Wie es funktioniert
 
 ```
@@ -173,6 +263,9 @@ Die inoffizielle Store-API wird auf ca. einen Request pro 1,6 s gedrosselt.
 | `app/db.py` | komplettes SQLite-Schema |
 | `app/stats.py` | **alle Auswertungen** – hier neue Statistiken ergänzen |
 | `app/main.py` | FastAPI-Routen (`/api/docs` zeigt sie alle) |
+| `app/notify.py` | Discord-Meldungen aus dem Sammellauf (Webhook, kein Bot nötig) |
+| `app/embeds.py` | Embed-Bau – von Webhook **und** Bot genutzt |
+| `bot/` | der Discord-Bot: `bot.py` (Befehle, Buttons, Voice), `api.py` (HTTP zum Hub) |
 | `app/cli.py` | Spieler verwalten, Demo-Daten, Seed prüfen |
 | `frontend/` | Single-Page-Frontend, kein Build, keine CDN-Abhängigkeit |
 | `data/coop_seed.json` | kuratierte Vorschlagsliste für „Neu entdecken" |
@@ -194,8 +287,18 @@ Die inoffizielle Store-API wird auf ca. einen Request pro 1,6 s gedrosselt.
 | `STORE_LANG`, `STORE_CC` | Sprache/Land für Store-Metadaten und Preise |
 | `ACH_TOP_GAMES` | wie viele Top-Spiele pro Person auf Achievements geprüft werden (Standard 40) |
 | `ACH_REFRESH_HOURS` | Mindestabstand für erneute Achievement-Abfrage (Standard 168 h) |
-| `ADMIN_TOKEN` | wenn gesetzt: `POST /api/collect?token=…` stößt einen Lauf an |
+| `ADMIN_TOKEN` | Pflicht für schreibende Zugriffe: `POST /api/collect?token=…` und alle `/api/discord/*`-Routen |
 | `HOST`, `PORT` | Bind-Adresse des Webservers |
+| `DISCORD_WEBHOOK_URL` | gesetzt = der Sammler meldet im Channel (Stufe 1) |
+| `NOTIFY_RARE_PCT` | ab welcher Weltweit-Quote eine Errungenschaft als selten gilt (Standard 5) |
+| `NOTIFY_WEEKLY_DAY`, `NOTIFY_WEEKLY_HOUR` | Wochenrückblick, Standard Sonntag 18 Uhr (0 = Montag) |
+| `NOTIFY_DORMANT_DAYS` | ab wann ein Spiel als Staubfänger gilt (Standard 90 Tage) |
+| `DISCORD_TOKEN` | Bot-Token (Stufe 2) |
+| `DISCORD_GUILD_ID` | Server-ID – Slash-Befehle sind damit sofort verfügbar |
+| `DISCORD_CHANNEL_ID` | Kanal für die Voice-Vorschläge, leer = der Sprachkanal selbst |
+| `HUB_URL` | wie der Bot den Hub erreicht (Compose setzt das selbst) |
+| `PUBLIC_URL` | öffentliche Adresse, erscheint als Fußzeile unter den Meldungen |
+| `VOICE_MIN_PLAYERS`, `VOICE_COOLDOWN_MIN` | ab wie vielen Leuten im Sprachkanal vorgeschlagen wird und wie lange danach Ruhe ist |
 
 ## Wartung
 
@@ -210,7 +313,8 @@ Backup: die Datei `data/steamhub.db` sichern, das ist alles.
 
 ## Ideen für später
 
-- Discord-Webhook: „Timmi hat gerade ein seltenes Achievement geholt"
-- Sale-Watcher für die *Fast komplett*-Liste (Preisabfrage läuft schon mit)
+- Discord-OAuth statt `/verbinden`: dann sind auch die Stimmen aus dem Web echt
+- Sale-Watcher für die *Fast komplett*-Liste (Preisabfrage läuft schon mit) – als
+  Discord-Meldung „das fehlende Exemplar ist gerade 70 % günstiger"
 - Termin-Poll neben der Spiel-Abstimmung
 - Achievement-Rennen: wer knackt Spiel X zuerst zu 100 %

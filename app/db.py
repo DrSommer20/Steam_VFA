@@ -108,6 +108,25 @@ CREATE TABLE IF NOT EXISTS votes (
     PRIMARY KEY (steamid, appid)
 );
 
+-- Discord: was schon gepostet wurde. Verhindert Doppelmeldungen ueber
+-- Neustarts hinweg und beim ersten Aktivieren die grosse Nachhol-Lawine.
+CREATE TABLE IF NOT EXISTS discord_sent (
+    kind TEXT NOT NULL,
+    key  TEXT NOT NULL,
+    ts   INTEGER DEFAULT (strftime('%s','now')),
+    PRIMARY KEY (kind, key)
+);
+CREATE INDEX IF NOT EXISTS idx_discord_sent_ts ON discord_sent(ts);
+
+-- Discord-Konto <-> Steam-Spieler. Damit zaehlt eine Stimme aus Discord
+-- genauso wie eine aus dem Web - nur eben nachvollziehbar, wer sie abgab.
+CREATE TABLE IF NOT EXISTS discord_links (
+    discord_id TEXT PRIMARY KEY,
+    steamid    TEXT NOT NULL,
+    username   TEXT,
+    linked_at  INTEGER DEFAULT (strftime('%s','now'))
+);
+
 CREATE TABLE IF NOT EXISTS collect_runs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     started_at  INTEGER,

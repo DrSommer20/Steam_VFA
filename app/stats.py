@@ -777,3 +777,159 @@ def game_detail(con: sqlite3.Connection, appid: int) -> dict | None:
         (appid,),
     )
     return g
+
+
+# ---------------------------------------------------------------------- discord
+
+
+def suggest_for(con: sqlite3.Connection, steamids: list[str], limit: int = 5) -> list[dict]:
+    """Was koennen genau diese Leute jetzt zusammen spielen?
+
+    Multiplayer-Titel, die *alle* Genannten besitzen - am laengsten nicht
+    angefasst zuerst. Das ist die Frage, die im Voice-Channel wirklich gestellt
+    wird ("wir sind zu dritt, was geht?"), und die Web-Empfehlungen koennen sie
+    nicht beantworten, weil die immer von der ganzen Runde ausgehen.
+    """
+    ids = [s for s in dict.fromkeys(steamids) if s]
+    if not ids:
+        return []
+    marks = ",".join("?" * len(ids))
+    now = int(time.time())
+    rows = db.rows(
+        con,
+        f"""SELECT g.appid, g.name, g.icon, g.header_image, g.short_desc,
+                   g.is_coop, g.is_pvp, g.metacritic,
+                   SUM(o.playtime_forever) AS total_minutes,
+                   MAX(o.last_played) AS last_played
+              FROM ownership o JOIN games g ON g.appid = o.appid
+             WHERE o.steamid IN ({marks}) AND g.is_multiplayer = 1
+             GROUP BY g.appid
+            HAVING COUNT(DISTINCT o.steamid) = ?
+             ORDER BY (CASE WHEN MAX(o.last_played) = 0 THEN 0 ELSE MAX(o.last_played) END) ASC,
+                      total_minutes DESC
+             LIMIT ?""",
+        (*ids, len(ids), limit),
+    )
+    for r in rows:
+        days = (now - r["last_played"]) // DAY if r["last_played"] else None
+        r["days_since"] = days
+        r["reason"] = (
+            "Habt ihr noch nie gestartet"
+            if not r["total_minutes"]
+            else f"Seit {days} Tagen nicht mehr gespielt"
+            if days
+            else "Zuletzt gespielt: heute"
+        )
+    return rows
+
+
+def discord_links(con: sqlite3.Connection) -> list[dict]:
+    return db.rows(
+        con,
+        """SELECT d.discord_id, d.steamid, d.username, d.linked_at,
+                  COALESCE(p.nick, p.personaname, d.steamid) AS player
+             FROM discord_links d LEFT JOIN players p ON p.steamid = d.steamid
+            ORDER BY player COLLATE NOCASE""",
+    )
+
+
+def resolve_player(con: sqlite3.Connection, needle: str) -> dict | None:
+    """SteamID, Nick oder Steam-Anzeigename -> Spielerzeile."""
+    needle = (needle or "").strip()
+    if not needle:
+        return None
+    return db.one(
+        con,
+        """SELECT steamid, COALESCE(nick, personaname, steamid) AS name
+             FROM players
+            WHERE steamid = :n OR nick = :n COLLATE NOCASE
+               OR personaname = :n COLLATE NOCASE
+            LIMIT 1""",
+        {"n": needle},
+    )
+
+
+def link_discord(con: sqlite3.Connection, discord_id: str, steamid: str, username: str = "") -> None:
+    con.execute(
+        """INSERT INTO discord_links(discord_id, steamid, username, linked_at)
+           VALUES(?,?,?,strftime('%s','now'))
+           ON CONFLICT(discord_id) DO UPDATE SET steamid=excluded.steamid,
+               username=excluded.username, linked_at=excluded.linked_at""",
+        (str(discord_id), str(steamid), username or None),
+    )
+
+
+def unlink_discord(con: sqlite3.Connection, discord_id: str) -> bool:
+    cur = con.execute("DELETE FROM discord_links WHERE discord_id=?", (str(discord_id),))
+    return cur.rowcount > 0
+
+
+def steamid_for_discord(con: sqlite3.Connection, discord_id: str) -> str | None:
+    row = db.one(
+        con, "SELECT steamid FROM discord_links WHERE discord_id=?", (str(discord_id),)
+    )
+    return row["steamid"] if row else None
+
+
+def week_summary(con: sqlite3.Connection, days: int = 7) -> dict:
+    """Zahlen fuer den woechentlichen Rueckblick im Discord."""
+    since = int(time.time()) - days * DAY
+    players = db.rows(
+        con,
+        """SELECT COALESCE(p.nick, p.personaname, p.steamid) AS player,
+                  COALESCE(SUM(s.delta),0) AS minutes
+             FROM players p
+             LEFT JOIN playtime_snapshots s ON s.steamid = p.steamid AND s.ts >= ?
+            GROUP BY p.steamid ORDER BY minutes DESC""",
+        (since,),
+    )
+    games = db.rows(
+        con,
+        """SELECT g.name, g.appid, SUM(s.delta) AS minutes,
+                  COUNT(DISTINCT s.steamid) AS players
+             FROM playtime_snapshots s JOIN games g ON g.appid = s.appid
+            WHERE s.ts >= ? AND s.delta > 0
+            GROUP BY g.appid ORDER BY minutes DESC LIMIT 5""",
+        (since,),
+    )
+    ach = db.one(
+        con,
+        "SELECT COUNT(*) AS c FROM achievements WHERE achieved=1 AND unlocktime >= ?",
+        (since,),
+    ) or {}
+    new_games = db.one(
+        con, "SELECT COUNT(*) AS c FROM ownership WHERE first_seen >= ?", (since,)
+    ) or {}
+    return {
+        "players": players,
+        "games": games,
+        "achievements": ach.get("c") or 0,
+        "new_games": new_games.get("c") or 0,
+        "minutes": sum(p["minutes"] for p in players),
+        "dormant": dormant(con, settings.notify_dormant_days, 1),
+    }
+
+
+def dormant(con: sqlite3.Connection, min_days: int = 90, limit: int = 5) -> list[dict]:
+    """Multiplayer-Titel, die alle besitzen und trotzdem verstauben."""
+    n = _player_count(con)
+    if not n:
+        return []
+    now = int(time.time())
+    rows = db.rows(
+        con,
+        """SELECT g.appid, g.name, g.icon, g.header_image, g.short_desc,
+                  COUNT(o.steamid) AS owners, SUM(o.playtime_forever) AS total_minutes,
+                  MAX(o.last_played) AS last_played
+             FROM ownership o JOIN games g ON g.appid = o.appid
+            WHERE g.is_multiplayer = 1
+            GROUP BY g.appid
+           HAVING owners = ? AND total_minutes > 0
+                  AND MAX(o.last_played) > 0 AND MAX(o.last_played) < ?
+            ORDER BY last_played ASC LIMIT ?""",
+        (n, now - min_days * DAY, limit),
+    )
+    for r in rows:
+        r["days_since"] = (now - r["last_played"]) // DAY
+        r["reason"] = f"Seit {r['days_since']} Tagen nicht mehr gespielt"
+    return rows
