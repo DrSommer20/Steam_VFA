@@ -1,11 +1,16 @@
-# Zwei Container aus einem Image:
+# Drei Container aus einem Image:
 #   steamhub          - der Webserver
 #   steamhub-collect  - der Sammler im Dauerlauf (ersetzt cron/systemd-Timer)
-# Beide teilen sich das Volume mit der SQLite-Datei.
+#   steamhub-bot      - der Discord-Bot (optional, Profil "bot")
+# Server und Sammler teilen sich das Volume mit der SQLite-Datei, der Bot
+# spricht ausschliesslich ueber HTTP mit dem Server.
 #
 #   cp .env.example .env     # STEAM_API_KEY eintragen
 #   docker compose up -d --build
 #   docker compose logs -f steamhub-collect
+#
+# Mit Discord-Bot (braucht DISCORD_TOKEN und ADMIN_TOKEN in der .env):
+#   docker compose --profile bot up -d --build
 
 x-common: &common
   build: .
@@ -38,6 +43,29 @@ services:
     container_name: steamhub-collect
     # alle 30 Minuten sammeln, erster Lauf sofort beim Start
     command: ["python", "-m", "app.collect", "--interval", "1800"]
+    # Der Healthcheck im Image fragt den Webserver ab - den gibt es hier nicht.
+    healthcheck:
+      disable: true
+    depends_on:
+      - steamhub
+
+  # Nur mit "--profile bot" - ohne DISCORD_TOKEN wuerde der Container sonst in
+  # eine Neustartschleife laufen. Die Webhook-Meldungen aus dem Sammellauf
+  # brauchen ihn nicht, die haengen allein an DISCORD_WEBHOOK_URL.
+  steamhub-bot:
+    <<: *common
+    container_name: steamhub-bot
+    profiles: ["bot"]
+    environment:
+      DB_PATH: /data/steamhub.db
+      PLAYERS_FILE: /data/players.json
+      HOST: 0.0.0.0
+      PORT: "8077"
+      # Im Container-Netz heisst der Server so - nicht localhost.
+      HUB_URL: http://steamhub:8077
+    command: ["python", "-m", "bot.bot"]
+    healthcheck:
+      disable: true
     depends_on:
       - steamhub
 

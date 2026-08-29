@@ -1,0 +1,24 @@
+# Override fuer den Betrieb hinter Nginx Proxy Manager (oder jedem anderen
+# Reverse Proxy, der selbst als Container laeuft).
+#
+# Netzwerknamen herausfinden:
+#   docker inspect <npm-container> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}}{{end}}'
+#   # oder einfach:  docker network ls
+#
+# Unten bei "name:" eintragen, dann starten mit:
+#   docker compose -f docker-compose.yml -f docker-compose.npm.yml up -d
+#
+# Das Port-Mapping aus der Basis-Datei bleibt bestehen (nur auf 127.0.0.1,
+# praktisch zum Debuggen per curl) - NPM spricht den Dienst ueber das
+# gemeinsame Netzwerk als http://steamhub:8077 an.
+
+services:
+  steamhub:
+    networks:
+      - default
+      - proxy
+
+networks:
+  proxy:
+    external: true
+    name: CHANGEME_npm_netzwerkname
